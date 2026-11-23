@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jerarquía de Chomsky · Simulador</title>
+<style>
+:root{--paper:#f7f4ee;--ink:#22201c;--mute:#6d675d;--line:#d9d2c3;--card:#fffdf8;--acc:#8a5a14;--cur:#e9c46a;--ok:#2f6b3b;--bad:#9b2f2f;--mono:ui-monospace,Menlo,Consolas,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.6 Georgia,'Times New Roman',serif}
+.wrap{max-width:1100px;margin:0 auto;padding:0 20px}
+header{padding-top:28px}
+h1{font-size:26px;font-weight:normal;margin:0}
+header p{margin:4px 0 0;color:var(--mute)}
+nav{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px;padding-bottom:16px;border-bottom:1px solid var(--line)}
+button,select,input,textarea{font:inherit;font-size:15px;color:var(--ink)}
+nav button,.btn{padding:6px 14px;border:1px solid var(--ink);background:transparent;border-radius:6px;cursor:pointer}
+nav button[aria-current="true"],.btn.main{background:var(--ink);color:var(--paper)}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.mod{padding:20px 0 40px}
+.desc{max-width:70ch;margin:0 0 16px;color:var(--mute)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+label{display:flex;flex-direction:column;gap:4px;font-size:14px;color:var(--mute)}
+select,input,textarea{background:#fff;border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+textarea,.input{font-family:var(--mono)!important}
+.fields{display:flex;gap:12px;flex-wrap:wrap}
+.fields input{width:90px}
+.hint{font-size:13px;color:var(--mute);margin:0}
+.chips,.btns{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-family:var(--mono);font-size:13px;padding:3px 10px;border:1px solid var(--line);background:#fff;border-radius:999px;cursor:pointer}
+.vis{min-height:140px;display:flex;flex-direction:column;gap:10px;overflow-x:auto}
+.row{display:flex;flex-wrap:wrap;align-items:center}
+.lbl{font-size:13px;color:var(--mute)}
+.st{display:inline-grid;place-items:center;width:44px;height:44px;border:1px solid var(--ink);border-radius:50%;margin:4px;font-family:var(--mono);background:#fff}
+.st.fin{box-shadow:inset 0 0 0 3px #fff,inset 0 0 0 4px var(--ink)}
+.st.cur{background:var(--ink);color:var(--paper)}
+.cell{display:inline-grid;place-items:center;min-width:36px;height:40px;padding:0 6px;margin:2px;border:1px solid var(--line);background:#fff;font-family:var(--mono);border-radius:4px}
+.cell.done{color:#8c857a}
+.cell.cur{background:var(--cur);border-color:var(--acc)}
+.cell.delim{background:#efe8d8;color:var(--mute)}
+.cell.head{outline:2px solid var(--acc);outline-offset:2px}
+.stack{display:flex;flex-direction:column;width:120px;min-height:40px;background:#fff;border:1px solid var(--line);border-bottom:3px solid var(--ink)}
+.sym{font-family:var(--mono);padding:6px 10px;border-bottom:1px solid #efe8d8}
+.sym.top{background:var(--cur)}
+.status{margin:0;min-height:1.6em}
+.ok{color:var(--ok)}.bad{color:var(--bad)}
+.log{margin:0;padding-left:22px;font-size:14px;color:var(--mute);max-height:240px;overflow:auto;font-family:var(--mono)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<h1>Jerarquía de Chomsky · Simulador</h1>
+<p>Observa paso a paso cómo cada modelo de cómputo procesa una cadena.</p>
+<nav id="nav">
+<button data-m="m3" aria-current="true">Nivel 3 · Finito</button>
+<button data-m="m2">Nivel 2 · Pila</button>
+<button data-m="m1">Nivel 1 · Acotado</button>
+<button data-m="m0">Nivel 0 · Turing</button>
+</nav>
+</header>
+<main id="main"></main>
+</div>
+<script>
+const $=(s,r=document)=>r.querySelector(s);
+const j=a=>a.join('\n');
+const esc=x=>String(x).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const bad=m=>{throw new Error(m)};
+const M={
+m3:{kind:'dfa',desc:'Reconoce lenguajes regulares con memoria finita: solo recuerda en qué estado está. Lee la cadena símbolo a símbolo.',hint:'Una regla por línea: estado símbolo estado_siguiente.',presets:[
+ {n:'Terminan en “ab”',s:'q0',f:'q2',r:j(['q0 a q1','q0 b q0','q1 a q1','q1 b q2','q2 a q1','q2 b q0']),t:['aab','bab','abba','ababab','']},
+ {n:'Número par de “a”',s:'p',f:'p',r:j(['p a i','p b p','i a p','i b i']),t:['aabb','abab','aba','abb','']}]},
+m2:{kind:'pda',desc:'Reconoce lenguajes libres de contexto con una pila LIFO. En cada paso puede leer un símbolo, desapilar el tope y apilar nuevos símbolos.',hint:'Formato: estado entrada tope estado_siguiente apilar. Usa - para ε. En “apilar”, el primer símbolo queda arriba.',presets:[
+ {n:'aⁿbⁿ',s:'q0',f:'q2',z:'Z',r:j(['q0 a Z q0 AZ','q0 a A q0 AA','q0 b A q1 -','q1 b A q1 -','q0 - Z q2 Z','q1 - Z q2 Z']),t:['aaabbb','aab','ab','ba','']},
+ {n:'Paréntesis balanceados',s:'q0',f:'q1',z:'Z',r:j(['q0 ( Z q0 PZ','q0 ( P q0 PP','q0 ) P q0 -','q0 - Z q1 Z']),t:['(())()','(()','())','()()','']}]},
+m1:{kind:'tm',bounded:true,desc:'Reconoce lenguajes sensibles al contexto, como aⁿbⁿcⁿ. La cinta tiene el tamaño de la entrada, delimitada por [ y ], y el cabezal se mueve en ambos sentidos.',hint:'Formato: estado símbolo nuevo_estado escritura movimiento (L, R o S). Aceptación: qacc. Salirse de la cinta rechaza.',presets:[
+ {n:'aⁿbⁿcⁿ',s:'q0',r:j(['q0 [ q0 [ R','q0 a q1 X R','q0 X q0 X R','q0 Y q4 Y R','q0 ] qacc ] R','q1 a q1 a R','q1 X q1 X R','q1 Y q1 Y R','q1 b q2 Y R','q2 b q2 b R','q2 Y q2 Y R','q2 Z q2 Z R','q2 c q3 Z L','q3 a q3 a L','q3 b q3 b L','q3 c q3 c L','q3 X q3 X L','q3 Y q3 Y L','q3 Z q3 Z L','q3 [ q0 [ R','q4 Y q4 Y R','q4 Z q4 Z R','q4 ] qacc ] R']),t:['aabbcc','abc','aabbc','abcc','']}]},
+m0:{kind:'tm',bounded:false,desc:'Cinta ilimitada en ambos sentidos. Acepta cadenas o calcula la suma unaria: 1ᵐ+1ⁿ deja 1ᵐ⁺ⁿ en la cinta.',hint:'Mismo formato que el Nivel 1. Las celdas vacías son _.',presets:[
+ {n:'Suma unaria',s:'q0',r:j(['q0 1 q0 1 R','q0 + q1 1 R','q1 1 q1 1 R','q1 _ q2 _ L','q2 1 qacc _ S']),t:['11+111','1+1','111+11','+1']},
+ {n:'aⁿbⁿ sin cota',s:'q0',r:j(['q0 a q1 X R','q0 X q0 X R','q0 Y q3 Y R','q0 _ qacc _ S','q1 a q1 a R','q1 Y q1 Y R','q1 b q2 Y L','q2 a q2 a L','q2 Y q2 Y L','q2 X q0 X R','q3 Y q3 Y R','q3 _ qacc _ S']),t:['aabb','aab','ab','']}]}
+};
+const ST={};
+const UI=id=>{const s=document.getElementById(id);return{preset:$('.preset',s),rules:$('.rules',s),start:$('.start',s),finals:$('.finals',s),z:$('.z',s),input:$('.input',s),chips:$('.chips',s),vis:$('.vis',s),status:$('.status',s),log:$('.log',s),auto:$('.auto',s)}};
+
+function parse(kind,text){
+  const R={};
+  for(const raw of text.split('\n')){
+    const l=raw.trim(); if(!l)continue;
+    const t=l.split(/\s+/);
+    if(kind==='dfa'){if(t.length!==3)bad('Regla inválida: '+l);R[t[0]+'|'+t[1]]=t[2];}
+    else if(kind==='pda'){if(t.length!==5)bad('Regla inválida: '+l);R[t[0]+'|'+t[1]+'|'+t[2]]={t:t[3],p:t[4]};}
+    else{if(t.length!==5)bad('Regla inválida: '+l);R[t[0]+'|'+t[1]]={t:t[2],w:t[3],d:t[4]};}
+  }
+  return R;
+}
+function traceDFA(R,start,fin,s){
+  const T=[];let q=start;
+  T.push({q,pos:0,msg:'Inicio en '+q+'.'});
+  for(let i=0;i<s.length;i++){
+    const t=R[q+'|'+s[i]];
+    if(t===undefined){T.push({q,pos:i,msg:`No hay transición para (${q}, ${s[i]}). Rechazada.`,end:'reject'});return T;}
+    T.push({q:t,pos:i+1,msg:`δ(${q}, ${s[i]}) = ${t}`});q=t;
+  }
+  const ok=fin.includes(q);
+  T.push({q,pos:s.length,msg:ok?'Cadena consumida en estado final.':'Cadena consumida en estado no final.',end:ok?'accept':'reject'});
+  return T;
+}
+function tracePDA(R,start,fin,z,s){
+  const T=[];let q=start,pos=0,st=[z];
+  const snap=(msg,end)=>T.push({q,pos,st:st.slice(),msg,end});
+  snap('Inicio: pila con símbolo inicial '+z+'.');
+  for(let k=0;k<500;k++){
+    if(pos===s.length&&fin.includes(q)){snap('Entrada consumida en estado final.','accept');return T;}
+    const top=st[0];
+    if(top===undefined){snap('Pila vacía. Rechazada.','reject');return T;}
+    let r=null,ch=pos<s.length?s[pos]:'ε',used=false;
+    if(pos<s.length){r=R[q+'|'+s[pos]+'|'+top];if(r)used=true;}
+    if(!r)r=R[q+'|-|'+top];
+    if(!r){snap(`Sin transición para (${q}, ${ch}, ${top}). Rechazada.`,'reject');return T;}
+    const desc=`δ(${q}, ${used?ch:'ε'}, ${top}) = (${r.t}, ${r.p})`;
+    st.shift();if(r.p!=='-')st.unshift(...r.p.split(''));
+    q=r.t;if(used)pos++;
+    snap(desc);
+  }
+  snap('Límite de pasos alcanzado.','reject');return T;
+}
+function traceTM(R,start,s,bounded){
+  let tape=bounded?['[',...s,']']:(s?[...s]:['_']);
+  let q=start,h=0;const T=[];
+  const snap=(msg,end)=>T.push({q,h,tape:tape.slice(),msg,end});
+  snap('Inicio: cabezal en la primera celda.');
+  for(let k=0;k<3000;k++){
+    if(q==='qacc'){snap('Estado de aceptación alcanzado.','accept');return T;}
+    const sym=tape[h]??'_',r=R[q+'|'+sym];
+    if(!r){snap(`Sin transición para (${q}, ${sym}). Rechazada.`,'reject');return T;}
+    let nh=h+(r.d==='R'?1:r.d==='L'?-1:0);
+    if(bounded&&(nh<0||nh>=tape.length)){snap(`El cabezal intentó salir de la cinta acotada. Rechazada.`,'reject');return T;}
+    const msg=`δ(${q}, ${sym}) = (${r.t}, ${r.w}, ${r.d})`;
+    tape[h]=r.w;q=r.t;
+    if(nh<0){tape.unshift('_');nh=0;}
+    if(nh>=tape.length)tape.push('_');
+    h=nh;snap(msg);
+  }
+  snap('Límite de pasos alcanzado.','reject');return T;
+}
+function compile(id){
+  const m=M[id],el=UI(id),st=ST[id];
+  const fin=m.kind==='tm'?['qacc']:el.finals.value.split(/[\s,]+/).filter(Boolean);
+  const start=el.start.value.trim(),s=el.input.value,z=(el.z&&el.z.value.trim())||'Z',rules=el.rules.value;
+  try{
+    const R=parse(m.kind==='dfa'?'dfa':m.kind==='pda'?'pda':'tm',rules);
+    st.trace=m.kind==='dfa'?traceDFA(R,start,fin,s):m.kind==='pda'?tracePDA(R,start,fin,z,s):traceTM(R,start,s,m.bounded);
+    st.err=null;
+  }catch(e){st.trace=null;st.err=e.message;}
+  const set=new Set([start,...fin,'_']);
+  for(const l of rules.split('\n')){const t=l.trim().split(/\s+/);if(t.length<3)continue;set.add(t[0]);if(m.kind==='dfa')set.add(t[2]);else if(m.kind==='pda')set.add(t[3]);else{set.add(t[2]);set.add(t[1]);set.add(t[3]);}}
+  set.delete(undefined);set.delete('');
+  st.states=m.kind==='tm'?[]:[...set];
+  st.alpha=[...set].filter(x=>x.length===1||x==='_').join(' ');
+  st.fin=fin;st.s=s;st.idx=0;
+}
+function sync(id){
+  const el=UI(id),st=ST[id];
+  const k=[el.rules.value,el.start.value,el.finals?el.finals.value:'',el.z?el.z.value:'',el.input.value].join('\u0001');
+  if(k!==st.key){st.key=k;compile(id);}
+}
+function render(id){
+  const el=UI(id),st=ST[id],m=M[id];
+  el.vis.innerHTML='';el.log.innerHTML='';
+  if(!st.trace){el.status.className='status bad';el.status.textContent=st.err||'';return;}
+  const T=st.trace,snap=T[st.idx],last=st.idx===T.length-1;
+  let h='';
+  if(m.kind==='tm'){
+    h+=`<div class="lbl">Estado activo</div><div class="row"><span class="st cur">${esc(snap.q)}</span></div>`;
+    h+=`<div class="lbl">Cinta${m.bounded?' acotada por [ y ]':' extensible'} · alfabeto: ${esc(st.alpha)}</div>`;
+    h+=`<div class="row">${snap.tape.map((c,i)=>`<span class="cell${c==='['||c===']'?' delim':''}${i===snap.h?' head cur':''}">${esc(c)}</span>`).join('')}</div>`;
+    h+=`<div class="lbl">Cabezal en la celda ${snap.h} (resaltada)</div>`;
+  }else{
+    h+=`<div class="lbl">Estados (activo relleno, final con doble borde)</div><div class="row">${st.states.map(q=>`<span class="st${q===snap.q?' cur':''}${st.fin.includes(q)?' fin':''}">${esc(q)}</span>`).join('')}</div>`;
+    h+=`<div class="lbl">Entrada (posición actual resaltada)</div><div class="row">${[...st.s].map((c,i)=>`<span class="cell${i<snap.pos?' done':''}${i===snap.pos?' cur':''}">${esc(c)}</span>`).join('')}<span class="cell${snap.pos===st.s.length?' cur':''}">fin</span></div>`;
+    if(m.kind==='pda')h+=`<div class="lbl">Pila (tope arriba)</div><div class="stack">${snap.st.length?snap.st.map((c,i)=>`<div class="sym${i===0?' top':''}">${esc(c)}</div>`).join(''):'<div class="sym">vacía</div>'}</div>`;
+  }
+  el.vis.innerHTML=h;
+  el.log.innerHTML=T.slice(0,st.idx+1).map(x=>`<li>${esc(x.msg)}</li>`).join('');
+  let txt=`Paso ${st.idx} de ${T.length-1}`;el.status.className='status';
+  if(last&&snap.end){
+    const ok=snap.end==='accept';el.status.className='status '+(ok?'ok':'bad');
+    txt=ok?'Cadena aceptada':'Cadena rechazada';
+    if(m.kind==='tm'&&ok&&!m.bounded)txt+=` · cinta final: ${snap.tape.join('').replace(/_/g,'')||'(vacía)'}`;
+  }
+  el.status.textContent=txt;
+}
+function go(id){sync(id);const st=ST[id];if(st.trace)st.idx=st.trace.length-1;render(id);}
+function step(id){sync(id);const st=ST[id];if(st.trace&&st.idx<st.trace.length-1)st.idx++;render(id);if(st.trace&&st.idx>=st.trace.length-1)stop(id);}
+function stop(id){const st=ST[id];if(st.timer){clearInterval(st.timer);st.timer=null;}UI(id).auto.textContent='Automático';}
+function toggleAuto(id){const st=ST[id];if(st.timer){stop(id);return;}UI(id).auto.textContent='Pausar';st.timer=setInterval(()=>step(id),600);}
+function reset(id){stop(id);sync(id);ST[id].idx=0;render(id);}
+function setPreset(id,i){
+  const m=M[id],el=UI(id),p=m.presets[i];
+  el.rules.value=p.r;el.start.value=p.s;if(el.finals)el.finals.value=p.f||'';if(el.z)el.z.value=p.z||'Z';
+  el.input.value=p.t[0];
+  el.chips.innerHTML=p.t.map((t,k)=>`<button class="chip" data-k="${k}">${t===''?'vacía':esc(t)}</button>`).join('');
+  el.chips.onclick=e=>{const b=e.target.closest('.chip');if(!b)return;stop(id);el.input.value=p.t[+b.dataset.k];go(id);};
+  ST[id]={};ST[id].key='';sync(id);go(id);
+}
+function build(id){
+  const m=M[id],sec=document.createElement('section');
+  sec.className='mod';sec.id=id;sec.hidden=id!=='m3';
+  sec.innerHTML=`<p class="desc">${m.desc}</p>
+<div class="grid">
+<div class="panel">
+<label>Preajuste<select class="preset">${m.presets.map((p,i)=>`<option value="${i}">${p.n}</option>`).join('')}</select></label>
+<label>Reglas de transición<textarea class="rules" rows="8" spellcheck="false"></textarea></label>
+<div class="fields">
+<label>Estado inicial<input class="start" size="6"></label>
+${m.kind!=='tm'?'<label>Estados finales<input class="finals" size="8"></label>':''}
+${m.kind==='pda'?'<label>Símbolo inicial de pila<input class="z" size="4"></label>':''}
+</div>
+<p class="hint">${m.hint}</p>
+<label>Cadena de entrada<input class="input" spellcheck="false"></label>
+<div class="chips"></div>
+<div class="btns"><button class="btn main" data-a="go">Ejecutar</button><button class="btn" data-a="step">Paso</button><button class="btn auto" data-a="auto">Automático</button><button class="btn" data-a="reset">Reiniciar</button></div>
+</div>
+<div class="panel"><div class="vis"></div><p class="status" role="status"></p><ol class="log"></ol></div>
+</div>`;
+  $('#main').appendChild(sec);
+  const el=UI(id);
+  el.preset.onchange=()=>setPreset(id,+el.preset.value);
+  sec.querySelectorAll('.btns button').forEach(b=>b.onclick=()=>({go:()=>go(id),step:()=>{stop(id);step(id)},auto:()=>toggleAuto(id),reset:()=>reset(id)})[b.dataset.a]());
+  el.input.addEventListener('keydown',e=>{if(e.key==='Enter')go(id);});
+  setPreset(id,0);
+}
+Object.keys(M).forEach(build);
+document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#nav button').forEach(x=>x.setAttribute('aria-current',x===b));
+  document.querySelectorAll('.mod').forEach(s=>s.hidden=s.id!==b.dataset.m);
+});
+</script>
+</body>
+</html>
